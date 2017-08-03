@@ -1,6 +1,6 @@
 /* Most of this code came from the Unix Network Programming book.
  * The code was tweaked as needed.*/
-enum {MAXLINE = 4096, LISTENQ = 100};
+enum {MAXLIN = 4096, LISTENQ = 100};
 #include <stdarg.h> 	//Needed for va_list
 #include <errno.h> 	    //Needed to use errno
 #include <strings.h> 	//needed for the bzero function
@@ -21,7 +21,13 @@ enum {MAXLINE = 4096, LISTENQ = 100};
 #include <sys/ioctl.h>
 #include <sys/time.h>
 #include <netdb.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <ctype.h>
 
+#define BUF_SIZE 4096 /* use a buffer size of 4096 bytes */
+#define OUTPUT_MODE 0700 /* protection bits for output file */
+#define MAXLINE 4096
 #define INTERVAL 5 /* interval in seconds */
 #define CCOUNT 64*1024 /*Default Character Count */
 
@@ -30,6 +36,8 @@ enum {MAXLINE = 4096, LISTENQ = 100};
 #endif	/* INADDR_NONE */
 
 
+int TokenCount;
+
 struct {
     pthread_mutex_t Mutex;
     unsigned int ConnectionCount;
@@ -37,6 +45,7 @@ struct {
     unsigned long ConnectionTime;
     unsigned long ByteCount;
 } stats;
+
 /************* Socket Wrappers *************************************/
 
 //Passive socket creation (server)
@@ -70,6 +79,10 @@ void Writen(int fd, void *ptr, size_t nbytes);
 //readline wrapper
 ssize_t Readline(int fd, void *ptr, size_t maxlen);
 
+/* Tries to read a line from a socket or file descriptor. It can also
+ * handle the cases when EOF is reached. */
+ssize_t readline(int fd, void *vptr, size_t maxlen);
+
 //write
 void Write(int fd, void *ptr, size_t nbytes);
 
@@ -97,6 +110,9 @@ void Inet_pton(int family, const char *strptr, void *addrptr);
 void Inet_ntop(int family, const void *addrptr, char *strptr, size_t len);
 
 /************* Error Handling ************************************/
+
+/* Print an error message and exit */
+int errexit(const char *format, ...);
 
 /* Print message and return to caller
  * Caller specifies "errnoflag"*/
@@ -126,3 +142,9 @@ void ServerStatistics(void);
 
 //Reports the number of miliseconds elapsed
 long MsTime(unsigned long *);
+
+void Tokenize(char *sentence, char** StorageArray, char * delimiter);
+
+char * StripWhite(char *string);
+
+bool SetSocketBlockingEnabled(int fd, bool blocking);

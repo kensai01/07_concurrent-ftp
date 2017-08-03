@@ -3,6 +3,25 @@
 
 #include "NP.h"
 
+
+
+/*Strip white space
+/*Strip white space
+ * Returns a pointer to a string.*/
+char * StripWhite(char *str){
+    char *end;
+    // Trim leading space
+    while(isspace((unsigned char)*str)) str++;
+    if(*str == 0)  // All spaces?
+        return str;
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+    // Write new null terminator
+    *(end+1) = 0;
+    return str;
+}
+
 /****************** Socket Wrappers ********************************/
 unsigned short	portbase = 0;	/* port base, for non-root servers	*/
 int PassiveSocket(const char *service, const char *transport, int qlen)
@@ -236,24 +255,24 @@ again:
  * handle the cases when EOF is reached. */
 ssize_t readline(int fd, void *vptr, size_t maxlen)
 {
-	ssize_t	n, rc;
-	char	c, *ptr;
+    ssize_t	n, rc;
+    char	c, *ptr;
 
-	ptr = vptr;
-	for (n = 1; n < maxlen; n++) {
-		if ( (rc = my_read(fd, &c)) == 1) {
-			*ptr++ = c;
-			if (c == '\n')
-				break;	/* newline is stored, like fgets() */
-		} else if (rc == 0) {
-			*ptr = 0;
-			return(n - 1);	/* EOF, n - 1 bytes were read */
-		} else
-			return(-1);		/* error, errno set by read() */
-	}
+    ptr = vptr;
+    for (n = 1; n < maxlen; n++) {
+        if ( (rc = my_read(fd, &c)) == 1) {
+            *ptr++ = c;
+            if (c == '\n')
+                break;	/* newline is stored, like fgets() */
+        } else if (rc == 0) {
+            *ptr = 0;
+            return(n - 1);	/* EOF, n - 1 bytes were read */
+        } else
+            return(-1);		/* error, errno set by read() */
+    }
 
-	*ptr = 0;	/* null terminate like fgets() */
-	return(n);
+    *ptr = 0;	/* null terminate like fgets() */
+    return(n);
 }
 
 /* A wrapper around Readline. Returns the number of bytes read. 
@@ -353,6 +372,15 @@ void Fputs(const char *ptr, FILE *stream)
 }
 
 /****************** Error Handling **************************************/
+/* Print an error message and exit */
+int errexit(const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+    exit(1);
+}
 
 /* Print message and return to caller
  * Caller specifies "errnoflag" */
@@ -462,7 +490,6 @@ void ServerStatistics(void){
     }
 }
 
-
 //Reports the number of miliseconds elapsed
 long MsTime(unsigned long * pms)
 {
@@ -481,3 +508,37 @@ long MsTime(unsigned long * pms)
     *pms += (now.tv_usec - epoch.tv_usec + 500) / 1000;
     return *pms;
 }
+
+
+void Tokenize(char *sentence, char** StorageArray, char * delimiter)
+{
+    TokenCount = 0;
+    char *token;
+    char *next_token;
+    int counter = 1, position = 0;
+    token = strtok(sentence, delimiter);
+    next_token = token;
+    while (next_token != NULL){
+        TokenCount++;
+        StorageArray[position] = token;
+        //printf("Token: %s\n", StorageArray[position]);
+        position++;
+        if((next_token = strtok(NULL, delimiter))){
+            token = next_token;
+        }
+        counter++;
+    }
+    counter--;
+}
+
+/** Returns true on success, or false if there was an error */
+bool SetSocketBlockingEnabled(int fd, bool blocking)
+{
+    if (fd < 0) return false;
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return false;
+    flags = blocking ? (flags&~O_NONBLOCK) : (flags|O_NONBLOCK);
+    return (fcntl(fd, F_SETFL, flags) == 0) ? true : false;
+}
+
+

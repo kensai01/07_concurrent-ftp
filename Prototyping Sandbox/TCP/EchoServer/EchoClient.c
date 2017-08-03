@@ -2,31 +2,33 @@
 #define OUTPUT_MODE 0700 /* protection bits for output file */
 #include "NP.h"
 
-int StrCli(fd_set *pafds, int nfds, int ccount, int hcount);
-int Reader(int fd, fd_set *pfdset);
-int Writer(int fd, fd_set *pfdset);
 
-char *HName[NOFILE]; /* File desc. to host name mapping. */
-int ReadCount[NOFILE], WriteCount[NOFILE]; /*Read/WRite character counts.*/
 char buf[MAXLINE];
+
+/* Command Line Arguments */
+char *command;
+char *port;
+char *server;
+char **CmdArray;
+char *CmdCpy;
+int sockfd;
+
+int PutCommand(), LsCommand();
+
+//Client Controll Function
+void ClientControll(void);
+//Ls function
+int ls();
+
 
 /* argc- stands for the number of arguments
  * argv- stands for the argument vector storing the arguments */
  int main(int argc, char **argv) {
-    int ccount = CCOUNT;
-    int i, hcount, maxfd, sockfd;
     int one = 1;
-    fd_set afds;
 
-    hcount = 0;
-    maxfd = -1;
-    for (i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "-c") == 0) {
-            //TODO add some use to this or remove it
-            if (++i < argc && (ccount == atoi(argv[i]))) { continue; }
-            printf("usage: TODO - add me or remove me");
-        }
-    }
+
+    server = argv[1];
+    port = argv[2];
     /* More or less, create a TCP IPv4 socket
      * While PF_INET should be used in this case, for all practical purposes
      * AF_INET can be used instead for the protocol family. AF_INET represents
@@ -34,8 +36,7 @@ char buf[MAXLINE];
      * SOCK_STREAM provides sequenced,  reliable,  two-way,	connection-based
      * byte streams.
      * 0 is the default protocol version. */
-    //TODO update wrapper functions to be tcp static, not offer udp option
-    sockfd = ConnectSocket(argv[1], argv[2], "tcp");
+    sockfd = ConnectSocket(server, port, "tcp");
 
     /* Checks to see that two arguments were passed.
     * The first argument would be the command name.
@@ -45,131 +46,217 @@ char buf[MAXLINE];
         exit(1); //We just want to quit in this instance
     }
 
-    //Use the socket we created earlier to connect to the server.
-    if (ioctl(sockfd, FIONBIO, (char *) &one)) {
-        printf("ERROR ioctl: %s\n", strerror(errno));
-    }
-    if (sockfd > maxfd) { maxfd = sockfd; }
-    HName[sockfd] = argv[1];
-    ++hcount;
-    FD_SET(sockfd, &afds);
+    /* Run client control function. */
+    ClientControll();
 
-	//This is the main function you want to modify for HWK 2
-    StrCli(&afds, maxfd+1, ccount, hcount);
-	/* In UNIX, this closes all open descriptors. Not necessarily
-	 * clean if ported to other systems. */
+    /*Finished*/
 	exit(0);
 }
 
-int StrCli(fd_set *pafds, int nfds, int ccount, int hcount){
+void ClientControll(void){
 
-    fd_set ReadFileDesc, WriteFileDesc;
-    fd_set ReadFileCpyDesc, WriteFileCpyDesc;
+    printf("Welcome to TCP...\n");
+    printf("Usage.\n");
+    printf("ls: to list directory in client side\n");
+    printf("!ls: to list directory on the server side\n");
+    printf("put <infilename> <outfilename>\n");
+    printf("get <outfilename> <infilename>\n");
 
-    int sockfd, i;
+    char sendline[MAXLINE], recvline[MAXLINE];
+    char buf[10000];
+    int outchars, inchars, n;
+    char **CmdArray;
+    char *CmdCpy;
 
-    for (i = 0; i < MAXLINE; ++i) buf[i] = 'D';
+    while (fgets(sendline, MAXLINE, stdin) != NULL) {
+        CmdArray = malloc(128 * sizeof(char*));
+        CmdCpy = malloc(255 * sizeof(char));
+        strcpy(CmdCpy, sendline);
+        Tokenize(CmdCpy, CmdArray, " ");
 
-    memcpy(&ReadFileCpyDesc, pafds, sizeof(ReadFileCpyDesc));
-    memcpy(&WriteFileCpyDesc, pafds, sizeof(WriteFileCpyDesc));
+        if(TokenCount >= 1) CmdArray[0] = StripWhite(CmdArray[0]);
+        if(TokenCount >= 2) CmdArray[1] = StripWhite(CmdArray[1]);
+        if(TokenCount >= 3) CmdArray[2] = StripWhite(CmdArray[2]);
 
-    for (sockfd = 0; sockfd < nfds; ++sockfd) ReadCount[sockfd] = WriteCount[sockfd] = ccount;
-
-    (void) MsTime((unsigned long*) 0);
-
-    while (hcount){
-        memcpy(&ReadFileDesc, &ReadFileCpyDesc, sizeof(ReadFileDesc));
-        memcpy(&WriteFileDesc, &WriteFileCpyDesc, sizeof(WriteFileDesc));
-
-
-        if (select(nfds, &ReadFileDesc, &WriteFileDesc, (fd_set *)0, (struct timeval *)0) < 0) {
-            printf("ERROR select: %s\n", strerror(errno));
+        //CmdArray[1] = StripWhite(CmdArray[1]);
+        printf("token: %s\n", CmdArray[0]);
+        printf("length of cmd %zu\n", strlen(CmdArray[0]));
+        if((strcmp(CmdArray[0],"ls")) == 0) { ls(); }
+        if((strcmp(CmdArray[0], "!ls")) == 0){
+            printf("Sending: %s\n", CmdArray[0]);
+            //sendline[MAXLINE] = '\0';
+            outchars = strlen(CmdArray[0]);
+            Writen(sockfd, CmdArray[0], outchars);
         }
-
-        for (sockfd = 0; sockfd<nfds; ++sockfd){
-            if(FD_ISSET(sockfd, &ReadFileDesc)){
-                if(Reader(sockfd, &ReadFileCpyDesc) == 0){
-                    hcount--;
-                }
-            }
-            if(FD_ISSET(sockfd, &WriteFileDesc)){
-                Writer(sockfd, &WriteFileCpyDesc);
-            }
+        else{
+            printf("ls no match");
         }
+//
+//        printf("Sending: %s\n", sendline);
+//        sendline[MAXLINE] = '\0';
+//        outchars = strlen(sendline);
+//        Writen(sockfd, sendline, outchars);
+
+//        for (inchars = 0; inchars < outchars; inchars+=n){
+//            n = read(sockfd, &sendline[inchars], outchars - inchars);
+//            if (n < 0){
+//                errexit("socket read failed: %s\n", strerror(errno));
+//            }
+//        }
+//        fputs(sendline, stdout);
     }
-    return 0;
+
+//    while (fgets(sendline, MAXLINE, fp) != NULL) {
+//        printf("Sending: %s\n", sendline);
+//        if(strlen(sendline) >= 3 && sendline[0] == '!' && sendline[1] == 'l' && sendline[2] == 's'){
+//            //ls(sendline);
+//        }
+//        else {
+//            if(strlen(sendline)>=3 && sendline[0] == 'p' && sendline[1] == 'u' && sendline[2] == 't'){
+//                // call ls function
+//                strcat(buf, "put ");
+//                strcat(buf, " ");
+//                strcat(buf, outfilename);
+//                strcat(buf, "BOF");
+//                Writen(sockfd, sendline, strlen(sendline));
+//            }
+//            Writen(sockfd, sendline, strlen(sendline));
+//
+//            while (1) {
+//                // TODO add error handling
+//                Readline(sockfd, recvline, MAXLINE);
+//                if (strcmp(recvline, "EOF") == 0){
+//                    break;
+//                }
+//                    err_quit("str_cli: server terminated prematurely");
+//            }
+//            fputs(recvline, stdout);
+//        }
+//    }
+//    close(sockfd);
 }
 
-//Handles reading from server
-int Reader(int fd, fd_set *pfdset) {
-    int in_fd, rd_count;
-    unsigned long now;
-    /* Open the input file and create the output file */
-    in_fd = open("testfile", O_RDONLY);  /* open the source file */
-    if (in_fd < 0) exit(2);  /* if it cannot be opened, exit */
-    /* Copy loop */
-    while (true) {
-        rd_count = read(in_fd, buf, MAXLINE); /* read a block of data */
-        if (rd_count <= 0) break; /* if end of file or error, exit loop */
-    }
 
-    ReadCount[fd] -= rd_count;
-    if(ReadCount[fd]) return 1;
-    (void) MsTime(&now);
-    printf("%s: %lu ms\n", HName[fd], now);
-    Close(fd);
-    FD_CLR(fd, pfdset);
-
-
-    /* Close the files */
-    close(in_fd);
-    if (rd_count == 0) /* no error on last read */
-        exit(0);
-    else
-        exit(5);  /* error on last read */
-
-/*    int cc;
-
-    cc = read(fd, buf, sizeof(buf));
-    if (cc < 0){
-        printf("ERROR: read %s\n", strerror(errno));
-    }
-    if (cc == 0){
-        printf("ERROR: Premature end of file.");
-    }
-    ReadCount[fd] -= cc;
-    if(ReadCount[fd]) return 1;
-    (void) MsTime(&now);
-    printf("%s: %lu ms\n", HName[fd], now);
-    Close(fd);
-    FD_CLR(fd, pfdset);
-    return 0;*/
-}
-
-//Handles writing to server
-int Writer(int fd, fd_set *pfdset)
+int ls()
 {
-    int wt_count , out_fd, rd_count;
-    out_fd = creat("testoutfile", OUTPUT_MODE);  /* create the destination file */
-    if (out_fd < 0) exit(3);  /* if it cannot be created, exit */
-
-    while (true) {
-        wt_count = write(out_fd, buf, rd_count); /* wr ite data */
-        if (wt_count <= 0) break;  /* wt_count <= 0 is an error */
+    DIR * d;
+    char * dir_name = ".";
+    /* Open the current directory. */
+    d = opendir (dir_name);
+    if (! d) {
+        fprintf (stderr, "Cannot open directory '%s': %s\n",
+                 dir_name, strerror (errno));
+        exit (EXIT_FAILURE);
     }
-    close(out_fd);
-
-
-    //int cc;
-
-    //cc = write(fd, buf, MIN((int)sizeof(buf), WriteCount[fd]));
-    if (wt_count < 0){
-        printf("ERROR: write %s\n", strerror(errno));
+    while (1) {
+        struct dirent * entry;
+        entry = readdir (d);
+        if (! entry) {
+            break;
+        }
+        printf ("%s\n", entry->d_name);
     }
-    WriteCount[fd] -= wt_count;
-    if (WriteCount[fd] == 0){
-        (void) shutdown(fd, 1);
-        FD_CLR(fd, pfdset);
+    /* Close the directory. */
+    if (closedir (d)) {
+        fprintf (stderr, "Could not close '%s': %s\n",
+                 dir_name, strerror (errno));
+        exit (EXIT_FAILURE);
     }
     return 0;
+}
+
+int GetCommand()
+{
+    if(TokenCount != 3){ printf("ERROR: usage <get> <fileonserver> <outputfile>\n"); return 0;}
+
+    FILE *out_fd;
+    int in_fd, rd_count, wt_count;
+    char buffer[MAXLINE];
+    printf("Receiving file from Server %s and saving as %s\n.", CmdArray[1], CmdArray[2]);
+    /* Open the input file and create the output file */
+    if ((out_fd = fopen(CmdArray[2], "w")) == NULL) {
+        printf("ERROR: %s\n", strerror(errno));
+        return 0;
+    }
+    /* Copy loop */
+    bzero(buffer, MAXLINE);
+    rd_count = 0;
+    while ((rd_count = recv(sockfd, buffer, MAXLINE, 0)) >= 0) {
+        /* read a block of data */
+        printf("Read Count: %d:", rd_count);
+        wt_count = fwrite(buffer, sizeof(char), rd_count, out_fd);
+        printf("Write Count: %d:", wt_count);
+        if(wt_count < rd_count){
+            printf("File write failed!");
+        }
+        bzero(buffer, MAXLINE);
+        if(rd_count <= 0) { break; }
+    }
+    if(rd_count < 0){
+        if (errno == EAGAIN){ printf("ERROR: recv() timed out %s", strerror(errno));
+        }
+        else printf("recv() timed out.\n");
+    }
+
+    if(fclose(out_fd) == -1){
+        printf("ERROR: %s\n", strerror(errno));
+        return 0;
+    }
+    /* no error on last read */
+    if (rd_count == 0)
+        return 1;
+    else
+        return 0;  /* error on last read */
+}
+
+int PutCommand() {
+    char *buffer = NULL;
+    int string_size, read_size;
+    int metaLen = 15; //("put <filename>***text****")
+    int fileNameLen;
+    int fileNameLen2;
+
+    FILE *handler = fopen(CmdArray[1], "r");
+
+    if (handler) {
+        // Seek the last byte of the file
+        fseek(handler, 0, SEEK_END);
+        // Offset from the first to the last byte, or in other words, filesize
+        string_size = ftell(handler);
+        // go back to the start of the file
+        rewind(handler);
+
+        fileNameLen = strlen(CmdArray[1]);
+        fileNameLen2 = strlen(CmdArray[2]);
+
+        // Allocate a string that can hold it all
+        buffer = (char *) malloc(sizeof(char) * (1 + fileNameLen2 + fileNameLen + string_size + 1 + metaLen));
+
+        /* Add meta data to prefix buffer. */
+        strcat(buffer, "put ");
+        strcat(buffer, CmdArray[1]);
+        strcat(buffer, " ");
+        strcat(buffer, CmdArray[2]);
+        strcat(buffer, "***text****");
+
+        // Read it all in one operation
+        read_size = fread(buffer, sizeof(char), string_size, handler);
+
+        // fread doesn't set it so put a \0 in the last position
+        // and buffer is now officially a string
+        buffer[string_size] = '\0';
+
+        if (string_size != read_size) {
+            // Something went wrong, throw away the memory and set
+            // the buffer to NULL
+            free(buffer);
+            buffer = NULL;
+        }
+    }
+
+    /* A wrapper around writen. Returns true if write is successful. */
+    Writen(sockfd, buffer, strlen(buffer));
+
+    //fclose(fd);
+    //free(buf);
 }

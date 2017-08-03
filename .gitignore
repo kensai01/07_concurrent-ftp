@@ -58,3 +58,21 @@ cmake-build-debug/
 CMakeLists\.txt
 
 \.Rhistory
+
+*.zip
+
+Prototyping Sandbox/TCP/EchoServer/boobomcgooboo
+
+Prototyping Sandbox/TCP/EchoServer/asdf3
+
+Prototyping Sandbox/TCP/EchoServer/asdf
+
+Prototyping Sandbox/TCP/EchoServer/asdf2
+
+Prototyping Sandbox/TCP/EchoServer/book\.txt
+
+Prototyping Sandbox/TCP/EchoServer/outfile
+
+Prototyping Sandbox/TCP/EchoServer/Client/tempstorage\.c
+
+*.txt
