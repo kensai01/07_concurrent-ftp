@@ -106,7 +106,7 @@ int str_echo(int sfd) {
     char **buf;
     char fileBuf[1000000];
     char headerBuf[100];
-    int cc = 0;
+    int cc;
     int outchars, inchars, n;
     char **CmdArray;
     char **TmpArray;
@@ -125,50 +125,99 @@ int str_echo(int sfd) {
     stats.ConnectionCount++;
     (void) pthread_mutex_unlock(&stats.Mutex);
 
-again:
-    if((cc = Readn(sfd, fileBuf, sizeof(fileBuf))) < 0){
-        fprintf(stderr, "Read Error: %s\n", fileBuf);
-    }
-    if (cc == 0){ goto again;}
-    fprintf(stdout, "current buffer: %s\n", fileBuf);
 
-    CmdArray = malloc(1000000 * sizeof(char *));
-    buf = malloc(1000000 * sizeof(char *));
-    CmdCpy = malloc(1000000 * sizeof(char));
-    TmpCpy = malloc(1000000 * sizeof(char));
+    while ((cc = read(sfd, fileBuf, sizeof(fileBuf))) != 0) {
 
-    strcpy(TmpCpy, fileBuf);
-    strcpy(CmdCpy, fileBuf);
-    Tokenize(CmdCpy, CmdArray, " ");
+        CmdArray = malloc(1000000 * sizeof(char *));
+        buf = malloc(1000000 * sizeof(char *));
+        CmdCpy = malloc(1000000 * sizeof(char));
+        TmpCpy = malloc(1000000 * sizeof(char));
 
-    if (TokenCount >= 1) CmdArray[0] = StripWhite(CmdArray[0]);
-    if (TokenCount >= 2) CmdArray[1] = StripWhite(CmdArray[1]);
-    if (TokenCount >= 3) CmdArray[2] = StripWhite(CmdArray[2]);
+        strcpy(TmpCpy, fileBuf);
+        strcpy(CmdCpy, fileBuf);
+        Tokenize(CmdCpy, CmdArray, " ");
 
-    fprintf(stdout, "CmdArray[0]%s\n", CmdArray[0]);
-    fprintf(stdout, "CmdArray[1]%s\n", CmdArray[1]);
-    fprintf(stdout, "CmdArray[2]%s\n", CmdArray[2]);
-    fprintf(stdout, "CmdArray[3]%s\n", CmdArray[3]);
+        if (TokenCount >= 1) CmdArray[0] = StripWhite(CmdArray[0]);
+        if (TokenCount >= 2) CmdArray[1] = StripWhite(CmdArray[1]);
+        if (TokenCount >= 3) CmdArray[2] = StripWhite(CmdArray[2]);
 
-    while (control != "quit") {
+        fprintf(stdout, "CmdArray[0]%s\n", CmdArray[0]);
+        fprintf(stdout, "CmdArray[1]%s\n", CmdArray[1]);
+        fprintf(stdout, "CmdArray[2]%s\n", CmdArray[2]);
+        fprintf(stdout, "CmdArray[3]%s\n", CmdArray[3]);
+
+
         if ((strcmp(CmdArray[0], "quit")) == 0) {
-            fprintf(stdout, "User entered %s .\n", CmdArray[0]);
+            fprintf(stdout, "Quit entered %s\n", CmdArray[0]);
             control = "quit";
         }
-        if ((strcmp(CmdArray[0], "!ls")) == 0) {
+
+        else if ((strcmp(CmdArray[0], "!ls")) == 0) {
             fprintf(stdout, "About to run ls /w this: %s\n", CmdArray[0]);
             ls();
-            (void) pthread_mutex_lock(&stats.Mutex);
-            stats.ByteCount += cc;
-            (void) pthread_mutex_unlock(&stats.Mutex);
-            cc = 0;
-            free(CmdArray);
-            free(CmdCpy);
-            free(buf);
-            bzero(fileBuf, 1000000);
-            goto again;
         }
-        if ((strcmp(CmdArray[0], "put")) == 0) {
+        else if ((strcmp(CmdArray[0], "get")) == 0){
+
+            int fileSize = 0;
+            char *tempBuf = NULL;
+
+            if (TokenCount != 3) { printf("Not enough tokens for get.\n"); }
+
+            /* Open file */
+            if ((fd = fopen(CmdArray[1], "rb")) == NULL) {
+                printf("ERROR: %s\n", strerror(errno));
+            }
+
+            /* Determine the size of the file to set buffer. */
+            if (fd) {
+                fseek(fd, 0L, SEEK_END);
+                fileSize = ftell(fd);
+                rewind(fd);
+            }
+
+            /* Initialize the buffer with file size. */
+            int bufferSize = fileSize+1;
+
+            if ((tempBuf = calloc(1, fileSize)) == NULL) {
+                fclose(fd);
+                fputs("Failed to allocate memory.", stderr);
+                //return 1;
+            }
+
+
+            /*Copy file into the temp buffer*/
+            if((fread(tempBuf, fileSize, 1, fd)) != 1){
+                fclose(fd);
+                free(tempBuf);
+                fputs("Read failed.", stderr);
+                //return 1;
+            }
+
+            /* Add null terminated character. */
+            strcat(tempBuf, "\0");
+            fclose(fd);
+            //fprintf(stdout, "%s\n", tempBuf);
+
+            /* A wrapper around writen. Returns true if write is successful. */
+            Writen(sfd, tempBuf, bufferSize);
+
+            //fprintf(stdout, "Writen Finished%s\n", bufferSize);
+
+            //free(tempBuf);
+            //free(CmdArray);
+            //free(CmdCpy);
+            bufferSize = 0;
+            (void) pthread_mutex_lock(&stats.Mutex);
+            stats.ByteCount += fileSize;
+            (void) pthread_mutex_unlock(&stats.Mutex);
+
+            break;
+        }
+        else if ((strcmp(CmdArray[0], "put")) == 0) {
+
+            /*Lock writing.*/
+            (void) pthread_mutex_lock(&stats.Mutex);
+
             if (TokenCount != 3) { printf("Not enough tokens for put.\n"); }
             /*Remove header fully.*/
             //Tokenize(fileBuf, buf, "***text****");
@@ -186,7 +235,7 @@ again:
             }
             /*Write the buffers contents to opened file.*/
             //strtok(TmpCpy, "***text****");
-            //fprintf(stdout, "%s", TmpCpy);
+            fprintf(stdout, "%s", TmpCpy);
 
             int bufSize = strlen(TmpCpy);
 
@@ -198,33 +247,25 @@ again:
             }
             /*Free memory*/
             fclose(fd);
-            (void) pthread_mutex_lock(&stats.Mutex);
-            stats.ByteCount += cc;
+            /*Unlock writing.*/
             (void) pthread_mutex_unlock(&stats.Mutex);
-            cc = 0;
-            free(CmdArray);
-            free(CmdCpy);
-            free(buf);
-            bzero(fileBuf, 1000000);
-            goto again;
+
+            //break;
         }
 
         if (cc < 0) {
             errexit("ERROR: read %s\n", strerror(errno));
         }
 
-//        if (write(sfd, buf, cc) < 0) {
-//            errexit("ERROR: write %s\n", strerror(errno));
-//        }
-    }
-    (void) pthread_mutex_lock(&stats.Mutex);
-    stats.ByteCount += cc;
-    (void) pthread_mutex_unlock(&stats.Mutex);
+        (void) pthread_mutex_lock(&stats.Mutex);
+        stats.ByteCount += cc;
+        (void) pthread_mutex_unlock(&stats.Mutex);
 
-    free(CmdArray);
-    free(CmdCpy);
-    free(buf);
-    bzero(fileBuf, 1000000);
+        free(CmdArray);
+        free(CmdCpy);
+        free(buf);
+        bzero(fileBuf, 1000000);
+    }
 
     (void) close(sfd);
     /*House keeping some statistics after socket is closed.*/

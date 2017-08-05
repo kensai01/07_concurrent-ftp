@@ -74,6 +74,7 @@ void ClientControll(void){
     char *tempBuf = NULL;
     int fileNameLen;
     int outfileNameLen;
+    char fileBuf1[1000000];
 
     while (fgets(sendline, MAXLINE, stdin) != NULL) {
         CmdArray = malloc(128 * sizeof(char*));
@@ -88,21 +89,75 @@ void ClientControll(void){
         //CmdArray[1] = StripWhite(CmdArray[1]);
         printf("token: %s\n", CmdArray[0]);
         printf("length of cmd %zu\n", strlen(CmdArray[0]));
-        if((strcmp(CmdArray[0],"ls")) == 0) {
-            ls();
-            free(CmdArray);
-            free(CmdCpy);
-        }
-        else if((strcmp(CmdArray[0], "!ls")) == 0){
+        if((strcmp(CmdArray[0],"ls")) == 0) { ls(); }
+        if((strcmp(CmdArray[0], "!ls")) == 0){
             printf("Sending: %s\n", CmdArray[0]);
             //sendline[MAXLINE] = '\0';
-            strcat(CmdArray[0], "\0");
             outchars = strlen(CmdArray[0]);
             Writen(sockfd, CmdArray[0], outchars);
-            free(CmdArray);
-            free(CmdCpy);
+            exit(1);
         }
-        else if((strcmp(CmdArray[0], "put")) == 0 ){
+        if((strcmp(CmdArray[0], "get")) == 0) {
+            /*Lock writing so only one thread can write to a file.*/
+            (void) pthread_mutex_lock(&stats.Mutex);
+
+            if(TokenCount != 3){ printf("ERROR: usage <get> <output file name> <input file name>\n");}
+            int metaLen = 5; // get and two spaces
+
+            fileNameLen = strlen(CmdArray[1]);
+            outfileNameLen = strlen(CmdArray[2]);
+
+            /* Initialize the buffer with file size. */
+            int bufferSize = metaLen+fileNameLen+outfileNameLen;
+
+            if ((tempBuf = calloc(1, fileSize)) == NULL) {
+                fputs("Failed to allocate memory.", stderr);
+                //return 1;
+            }
+
+            /* Fill buffer. */
+            strcat(tempBuf, "get");
+            strcat(tempBuf, " ");
+            strcat(tempBuf, CmdArray[1]);
+            strcat(tempBuf, " ");
+            strcat(tempBuf, CmdArray[2]);
+            strcat(tempBuf, "\0");
+
+            printf("%s\n", tempBuf);
+
+            /* A wrapper around writen. Returns true if write is successful. */
+            Writen(sockfd, tempBuf, bufferSize);
+
+            bzero(fileBuf1, 1000000);
+
+            Readn(sockfd, fileBuf1, sizeof(fileBuf1));
+
+            printf("inc: %s\n", fileBuf1);
+
+            if ((fd = fopen(CmdArray[2], "w")) == NULL) {
+                fputs("File open failed.", stderr);
+                //printf("ERROR: %s\n", strerror(errno));
+                //return 1;
+            }
+            int bufSize = strlen(fileBuf1);
+
+            fprintf(stdout, "buffer size: %u\n", bufSize);
+            if(fd){
+                fwrite(fileBuf1, bufSize, 1, fd);
+            }
+            /*Free memory*/
+            fclose(fd);
+
+            bzero(fileBuf1, 1000000);
+            bufferSize = 0;
+            bufSize = 0;
+
+            /*Unlock writing.*/
+            (void) pthread_mutex_unlock(&stats.Mutex);
+            exit(0);
+        }
+    }
+        if((strcmp(CmdArray[0], "put")) == 0 ){
             if(TokenCount != 3){ printf("ERROR: usage <put> <input file name> <output file name>\n");}
             int metaLen = 17; //("put <in filename> <out filename> ***text****")
 
@@ -156,19 +211,19 @@ void ClientControll(void){
             /* Add null terminated character. */
             strcat(fileBuf, "\0");
 
+            fclose(fd);
+
             /* A wrapper around writen. Returns true if write is successful. */
             Writen(sockfd, fileBuf, bufferSize);
 
-            fclose(fd);
             free(fileBuf);
-            free(CmdArray);
-            free(CmdCpy);
+            free(tempBuf);
             bufferSize = 0;
+            exit(0);
         }
         else{
-            continue;
+            printf("Command doesn't match any available.");
         }
-    }
 }
 
 
