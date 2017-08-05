@@ -72,16 +72,14 @@ void Bind(int fd, const struct sockaddr *sa, socklen_t salen);
 void Listen(int fd, int backlog);
 
 /************* I/O Wrappers ******************************************/
+//readn
+ssize_t readn(int fd, void *vptr, size_t n);
+
+//Readn Wrapper
+ssize_t Readn(int fd, void *ptr, size_t nbytes);
 
 //write
 void Writen(int fd, void *ptr, size_t nbytes);
-
-//readline wrapper
-ssize_t Readline(int fd, void *ptr, size_t maxlen);
-
-/* Tries to read a line from a socket or file descriptor. It can also
- * handle the cases when EOF is reached. */
-ssize_t readline(int fd, void *vptr, size_t maxlen);
 
 //write
 void Write(int fd, void *ptr, size_t nbytes);

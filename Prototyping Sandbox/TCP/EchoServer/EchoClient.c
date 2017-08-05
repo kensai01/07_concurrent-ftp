@@ -63,10 +63,17 @@ void ClientControll(void){
     printf("get <outfilename> <infilename>\n");
 
     char sendline[MAXLINE], recvline[MAXLINE];
-    char buf[10000];
+    char *buf = NULL;
     int outchars, inchars, n;
     char **CmdArray;
     char *CmdCpy;
+    char *infile, *outfile;
+    FILE *fd;
+    long fileSize;
+    char *fileBuf = NULL;
+    char *tempBuf = NULL;
+    int fileNameLen;
+    int outfileNameLen;
 
     while (fgets(sendline, MAXLINE, stdin) != NULL) {
         CmdArray = malloc(128 * sizeof(char*));
@@ -81,59 +88,87 @@ void ClientControll(void){
         //CmdArray[1] = StripWhite(CmdArray[1]);
         printf("token: %s\n", CmdArray[0]);
         printf("length of cmd %zu\n", strlen(CmdArray[0]));
-        if((strcmp(CmdArray[0],"ls")) == 0) { ls(); }
-        if((strcmp(CmdArray[0], "!ls")) == 0){
+        if((strcmp(CmdArray[0],"ls")) == 0) {
+            ls();
+            free(CmdArray);
+            free(CmdCpy);
+        }
+        else if((strcmp(CmdArray[0], "!ls")) == 0){
             printf("Sending: %s\n", CmdArray[0]);
             //sendline[MAXLINE] = '\0';
+            strcat(CmdArray[0], "\0");
             outchars = strlen(CmdArray[0]);
             Writen(sockfd, CmdArray[0], outchars);
+            free(CmdArray);
+            free(CmdCpy);
+        }
+        else if((strcmp(CmdArray[0], "put")) == 0 ){
+            if(TokenCount != 3){ printf("ERROR: usage <put> <input file name> <output file name>\n");}
+            int metaLen = 17; //("put <in filename> <out filename> ***text****")
+
+            /* Open file */
+            if ((fd = fopen(CmdArray[1], "rb")) == NULL) {
+                printf("ERROR: %s\n", strerror(errno));
+                //return 1;
+            }
+
+            /* Determine the size of the file to set buffer. */
+            fseek(fd, 0L, SEEK_END );
+            fileSize = ftell(fd);
+            rewind(fd);
+
+            fileNameLen = strlen(CmdArray[1]);
+            outfileNameLen = strlen(CmdArray[2]);
+
+            /* Initialize the buffer with file size. */
+            int bufferSize = fileSize+1+fileNameLen+outfileNameLen+metaLen+1;
+            if ((fileBuf = calloc(1, bufferSize)) == NULL) {
+                fclose(fd);
+                fputs("Failed to allocate memory.", stderr);
+                //return 1;
+            }
+            if ((tempBuf = calloc(1, fileSize)) == NULL) {
+                fclose(fd);
+                fputs("Failed to allocate memory.", stderr);
+                //return 1;
+            }
+
+            /* Add meta data to prefix buffer. */
+            strcat(fileBuf, "put ");
+            strcat(fileBuf, CmdArray[1]);
+            strcat(fileBuf, " ");
+            strcat(fileBuf, CmdArray[2]);
+            strcat(fileBuf, " ");
+            strcat(fileBuf, "***text****");
+
+            printf("%s", fileBuf);
+
+            /*Copy file into the temp buffer*/
+            if((fread(tempBuf, fileSize, 1, fd)) != 1){
+                fclose(fd);
+                free(tempBuf);
+                fputs("Read failed.", stderr);
+                //return 1;
+            }
+
+            /*Add temp buffer to header.*/
+            strcat(fileBuf, tempBuf);
+            /* Add null terminated character. */
+            strcat(fileBuf, "\0");
+
+            /* A wrapper around writen. Returns true if write is successful. */
+            Writen(sockfd, fileBuf, bufferSize);
+
+            fclose(fd);
+            free(fileBuf);
+            free(CmdArray);
+            free(CmdCpy);
+            bufferSize = 0;
         }
         else{
-            printf("ls no match");
+            continue;
         }
-//
-//        printf("Sending: %s\n", sendline);
-//        sendline[MAXLINE] = '\0';
-//        outchars = strlen(sendline);
-//        Writen(sockfd, sendline, outchars);
-
-//        for (inchars = 0; inchars < outchars; inchars+=n){
-//            n = read(sockfd, &sendline[inchars], outchars - inchars);
-//            if (n < 0){
-//                errexit("socket read failed: %s\n", strerror(errno));
-//            }
-//        }
-//        fputs(sendline, stdout);
     }
-
-//    while (fgets(sendline, MAXLINE, fp) != NULL) {
-//        printf("Sending: %s\n", sendline);
-//        if(strlen(sendline) >= 3 && sendline[0] == '!' && sendline[1] == 'l' && sendline[2] == 's'){
-//            //ls(sendline);
-//        }
-//        else {
-//            if(strlen(sendline)>=3 && sendline[0] == 'p' && sendline[1] == 'u' && sendline[2] == 't'){
-//                // call ls function
-//                strcat(buf, "put ");
-//                strcat(buf, " ");
-//                strcat(buf, outfilename);
-//                strcat(buf, "BOF");
-//                Writen(sockfd, sendline, strlen(sendline));
-//            }
-//            Writen(sockfd, sendline, strlen(sendline));
-//
-//            while (1) {
-//                // TODO add error handling
-//                Readline(sockfd, recvline, MAXLINE);
-//                if (strcmp(recvline, "EOF") == 0){
-//                    break;
-//                }
-//                    err_quit("str_cli: server terminated prematurely");
-//            }
-//            fputs(recvline, stdout);
-//        }
-//    }
-//    close(sockfd);
 }
 
 

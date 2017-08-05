@@ -6,12 +6,9 @@
 
 #define QLEN 32 /* maximum connection que length */
 
-char buf[MAXLINE];
-char **CmdArray;
-char *CmdCpy;
 
 /*Ls function for server.*/
-void ls();
+int ls();
 
 int str_echo(int sfd);
 
@@ -103,61 +100,132 @@ int main(int argc, char **argv) {
 }
 
 int str_echo(int sfd) {
+    char *control = "run";
+    int rwcntrol = 0;
     time_t start;
-    char buf[MAXLINE];
+    char **buf;
     char fileBuf[1000000];
-    int cc;
+    char headerBuf[100];
+    int cc = 0;
     int outchars, inchars, n;
     char **CmdArray;
+    char **TmpArray;
+    char **HeadArray;
     char *CmdCpy;
+    char *TmpCpy;
+    char *HeaderCpy;
     char *infile, *outfile;
     FILE *fd;
 
     start = time(0); /* Connection start time. */
+
+
     /*Unlock, increase connection count shared variable then lock. */
     (void) pthread_mutex_lock(&stats.Mutex);
     stats.ConnectionCount++;
     (void) pthread_mutex_unlock(&stats.Mutex);
 
-    while (cc = read(sfd, buf, sizeof(buf))){
-        CmdArray = malloc(128 * sizeof(char*));
-        CmdCpy = malloc(255 * sizeof(char));
-        strcpy(CmdCpy, buf);
-        Tokenize(CmdCpy, CmdArray, " ");
+again:
+    if((cc = Readn(sfd, fileBuf, sizeof(fileBuf))) < 0){
+        fprintf(stderr, "Read Error: %s\n", fileBuf);
+    }
+    if (cc == 0){ goto again;}
+    fprintf(stdout, "current buffer: %s\n", fileBuf);
 
-        if(TokenCount >= 1) CmdArray[0] = StripWhite(CmdArray[0]);
-        if(TokenCount >= 2) CmdArray[1] = StripWhite(CmdArray[1]);
-        if(TokenCount >= 3) CmdArray[2] = StripWhite(CmdArray[2]);
+    CmdArray = malloc(1000000 * sizeof(char *));
+    buf = malloc(1000000 * sizeof(char *));
+    CmdCpy = malloc(1000000 * sizeof(char));
+    TmpCpy = malloc(1000000 * sizeof(char));
 
-        if((strcmp(CmdArray[0], "!ls")) == 0) {
-            ls();}
-        //if((strcmp(CmdArray[0], "put")) == 0) {
-        //    strtok(buf, "***text****");
-        //    printf("%s\n", buf);
-        //    //Tokenize(buf, fileBuf, "***text****");
-        //    infile = CmdArray[1];
-        //    outfile = CmdArray[2];
+    strcpy(TmpCpy, fileBuf);
+    strcpy(CmdCpy, fileBuf);
+    Tokenize(CmdCpy, CmdArray, " ");
 
-            /* Open file for writing.*/
-        //    if ((fd = fopen(outfile, "w")) == NULL) {
-        //        printf("ERROR: %s\n", strerror(errno));
-        //        return 1;
-        //    }
-        //    fputs(buf, fd);
-        //}
+    if (TokenCount >= 1) CmdArray[0] = StripWhite(CmdArray[0]);
+    if (TokenCount >= 2) CmdArray[1] = StripWhite(CmdArray[1]);
+    if (TokenCount >= 3) CmdArray[2] = StripWhite(CmdArray[2]);
 
+    fprintf(stdout, "CmdArray[0]%s\n", CmdArray[0]);
+    fprintf(stdout, "CmdArray[1]%s\n", CmdArray[1]);
+    fprintf(stdout, "CmdArray[2]%s\n", CmdArray[2]);
+    fprintf(stdout, "CmdArray[3]%s\n", CmdArray[3]);
 
-        if (cc < 0){
+    while (control != "quit") {
+        if ((strcmp(CmdArray[0], "quit")) == 0) {
+            fprintf(stdout, "User entered %s .\n", CmdArray[0]);
+            control = "quit";
+        }
+        if ((strcmp(CmdArray[0], "!ls")) == 0) {
+            fprintf(stdout, "About to run ls /w this: %s\n", CmdArray[0]);
+            ls();
+            (void) pthread_mutex_lock(&stats.Mutex);
+            stats.ByteCount += cc;
+            (void) pthread_mutex_unlock(&stats.Mutex);
+            cc = 0;
+            free(CmdArray);
+            free(CmdCpy);
+            free(buf);
+            bzero(fileBuf, 1000000);
+            goto again;
+        }
+        if ((strcmp(CmdArray[0], "put")) == 0) {
+            if (TokenCount != 3) { printf("Not enough tokens for put.\n"); }
+            /*Remove header fully.*/
+            //Tokenize(fileBuf, buf, "***text****");
+
+            //if(buf[0] == NULL){fputs("Buf[0] empty.", stderr); }
+            //if(buf[1] == NULL){fputs("Buf[1] empty.", stderr); }
+
+            /* Buf now holds the entire text file contents.*/
+            /* Open file for writing. */
+            /* Open file */
+            if ((fd = fopen(CmdArray[2], "w")) == NULL) {
+                fputs("File open failed.", stderr);
+                //printf("ERROR: %s\n", strerror(errno));
+                //return 1;
+            }
+            /*Write the buffers contents to opened file.*/
+            //strtok(TmpCpy, "***text****");
+            //fprintf(stdout, "%s", TmpCpy);
+
+            int bufSize = strlen(TmpCpy);
+
+            //fprintf(stdout, "%s\n", buf[0]);
+            fprintf(stdout, "buffer size: %u\n", bufSize);
+            if(fd){
+                //Writen(fd, buf[1], bufSize);
+                fwrite(TmpCpy, bufSize, 1, fd);
+            }
+            /*Free memory*/
+            fclose(fd);
+            (void) pthread_mutex_lock(&stats.Mutex);
+            stats.ByteCount += cc;
+            (void) pthread_mutex_unlock(&stats.Mutex);
+            cc = 0;
+            free(CmdArray);
+            free(CmdCpy);
+            free(buf);
+            bzero(fileBuf, 1000000);
+            goto again;
+        }
+
+        if (cc < 0) {
             errexit("ERROR: read %s\n", strerror(errno));
         }
 
-        if (write(sfd, buf, cc) < 0){
-            errexit("ERROR: write %s\n", strerror(errno));
-        }
-        (void) pthread_mutex_lock(&stats.Mutex);
-        stats.ByteCount += cc;
-        (void) pthread_mutex_unlock(&stats.Mutex);
+//        if (write(sfd, buf, cc) < 0) {
+//            errexit("ERROR: write %s\n", strerror(errno));
+//        }
     }
+    (void) pthread_mutex_lock(&stats.Mutex);
+    stats.ByteCount += cc;
+    (void) pthread_mutex_unlock(&stats.Mutex);
+
+    free(CmdArray);
+    free(CmdCpy);
+    free(buf);
+    bzero(fileBuf, 1000000);
+
     (void) close(sfd);
     /*House keeping some statistics after socket is closed.*/
     (void) pthread_mutex_lock(&stats.Mutex);
@@ -168,21 +236,34 @@ int str_echo(int sfd) {
     return 0;
 }
 
-void ls()
+int ls()
 {
-    char * buf1;
-    DIR *d;
-    struct dirent *dir;
-    d = opendir(".");
-    if (d) {
-        while ((dir = readdir(d)) != NULL) {
-            strcat(buf1, dir->d_name);
-            sprintf(buf1, "%s\n", dir->d_name);
-            printf("%s\n", dir->d_name);
-        }
-        closedir(d);
+    DIR * d;
+    char * dir_name = ".";
+    /* Open the current directory. */
+    d = opendir (dir_name);
+    if (! d) {
+        fprintf (stderr, "Cannot open directory '%s': %s\n",
+                 dir_name, strerror (errno));
+        exit (EXIT_FAILURE);
     }
+    while (1) {
+        struct dirent * entry;
+        entry = readdir (d);
+        if (! entry) {
+            break;
+        }
+        printf ("%s\n", entry->d_name);
+    }
+    /* Close the directory. */
+    if (closedir (d)) {
+        fprintf (stderr, "Could not close '%s': %s\n",
+                 dir_name, strerror (errno));
+        exit (EXIT_FAILURE);
+    }
+    return 0;
 }
+
 
 void Write2File(void *buf)
 {
