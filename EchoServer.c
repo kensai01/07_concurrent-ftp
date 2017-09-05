@@ -19,19 +19,9 @@ void sig_quit(int signo){
 	exit(0);
 }
 
-/* Catches the SIGCHILD signal upon termination of a child
- * *UNUSED CURRENTLY*/
+/* Catches the SIGCHILD signal upon termination of a child */
 void sig_chld(int signo)
 {
-/*    pid_t   pid;
-    int     stat;
-
-    *//* WNOHANG means the call is not blocking. This is useful in case
-     * SIGCHILD is raised for a different reason other than child
-     * terminating. *//*
-    while ( (pid = waitpid(-1, &stat, WNOHANG)) > 0) {
-        printf("child %d terminated\n", (int) pid);
-    }*/
     return;
 }
 
@@ -46,7 +36,7 @@ int main(int argc, char **argv) {
     pthread_attr_t ThreadAttributes;
     struct sockaddr_in fsin;
     unsigned int alen;
-    char *service;
+    char *service = NULL;
     int mSockFd, sSockFd;
 
     /* Checks to see that two arguments were passed.
@@ -100,21 +90,14 @@ int main(int argc, char **argv) {
 }
 
 int str_echo(int sfd) {
-    char *control = "run";
-    int rwcntrol = 0;
+
     time_t start;
     char **buf;
     char fileBuf[1000000];
-    char headerBuf[100];
     int cc;
-    int outchars, inchars, n;
     char **CmdArray;
-    char **TmpArray;
-    char **HeadArray;
     char *CmdCpy;
     char *TmpCpy;
-    char *HeaderCpy;
-    char *infile, *outfile;
     FILE *fd;
 
     start = time(0); /* Connection start time. */
@@ -125,8 +108,7 @@ int str_echo(int sfd) {
     stats.ConnectionCount++;
     (void) pthread_mutex_unlock(&stats.Mutex);
 
-
-    while ((cc = read(sfd, fileBuf, sizeof(fileBuf))) != 0) {
+    while ((cc = Readn(sfd, fileBuf, sizeof(fileBuf))) != 0) {
 
         CmdArray = malloc(1000000 * sizeof(char *));
         buf = malloc(1000000 * sizeof(char *));
@@ -137,22 +119,21 @@ int str_echo(int sfd) {
         strcpy(CmdCpy, fileBuf);
         Tokenize(CmdCpy, CmdArray, " ");
 
+        /*Remove header fully. TmpCpy will have the contents of file to put on server w/o header.*/
+        Tokenize(TmpCpy, buf, "~");
+
         if (TokenCount >= 1) CmdArray[0] = StripWhite(CmdArray[0]);
         if (TokenCount >= 2) CmdArray[1] = StripWhite(CmdArray[1]);
         if (TokenCount >= 3) CmdArray[2] = StripWhite(CmdArray[2]);
 
-        fprintf(stdout, "CmdArray[0]%s\n", CmdArray[0]);
-        fprintf(stdout, "CmdArray[1]%s\n", CmdArray[1]);
-        fprintf(stdout, "CmdArray[2]%s\n", CmdArray[2]);
-        fprintf(stdout, "CmdArray[3]%s\n", CmdArray[3]);
-
-
-        if ((strcmp(CmdArray[0], "quit")) == 0) {
-            fprintf(stdout, "Quit entered %s\n", CmdArray[0]);
-            control = "quit";
+        int sentChcksum = 0;
+        /*Received cheksum value as int.*/
+        if (CmdArray[3] != NULL) {
+            sentChcksum = atoi(CmdArray[3]);
+            fprintf(stdout, "Sent checksum %u\n", sentChcksum);
         }
 
-        else if ((strcmp(CmdArray[0], "!ls")) == 0) {
+        if ((strcmp(CmdArray[0], "!ls")) == 0) {
             fprintf(stdout, "About to run ls /w this: %s\n", CmdArray[0]);
             ls();
         }
@@ -181,9 +162,7 @@ int str_echo(int sfd) {
             if ((tempBuf = calloc(1, fileSize)) == NULL) {
                 fclose(fd);
                 fputs("Failed to allocate memory.", stderr);
-                //return 1;
             }
-
 
             /*Copy file into the temp buffer*/
             if((fread(tempBuf, fileSize, 1, fd)) != 1){
@@ -196,55 +175,61 @@ int str_echo(int sfd) {
             /* Add null terminated character. */
             strcat(tempBuf, "\0");
             fclose(fd);
-            //fprintf(stdout, "%s\n", tempBuf);
+
+            /*Checksum setup and calculation.*/
+            int chcksum = 0;
+            chcksum = checksum(tempBuf);
+            printf("Checksum: %u\n", chcksum);
+
+            /*Get the number of digits in the checksum integer.*/
+            int numDigits = numDigi(chcksum);
+            numDigits++;
+            printf("Num Digits: %u\n", numDigits);
+
+            /*Convert checksum integer into a character array to add into the buffer.*/
+            char* chcksumChar = malloc(numDigits * sizeof(int));
+            sprintf(chcksumChar, "%u", chcksum);
+            printf("Checksum: %s\n", chcksumChar);
+
+            /*Add the checksum character to the buffer.*/
+            strcat(tempBuf, "~");
+            strcat(tempBuf, chcksumChar);
+
+            bufferSize = bufferSize + numDigits + 2;
 
             /* A wrapper around writen. Returns true if write is successful. */
             Writen(sfd, tempBuf, bufferSize);
 
-            //fprintf(stdout, "Writen Finished%s\n", bufferSize);
-
-            //free(tempBuf);
-            //free(CmdArray);
-            //free(CmdCpy);
             bufferSize = 0;
             (void) pthread_mutex_lock(&stats.Mutex);
             stats.ByteCount += fileSize;
             (void) pthread_mutex_unlock(&stats.Mutex);
-
-            break;
         }
         else if ((strcmp(CmdArray[0], "put")) == 0) {
-
             /*Lock writing.*/
             (void) pthread_mutex_lock(&stats.Mutex);
 
-            if (TokenCount != 3) { printf("Not enough tokens for put.\n"); }
-            /*Remove header fully.*/
-            //Tokenize(fileBuf, buf, "***text****");
+            /*Checksum setup and calculation.*/
+            int chcksum = 0;
+            chcksum = checksum(buf[1]);
+            fprintf(stdout, "Buffers checksum %u\n", chcksum);
 
-            //if(buf[0] == NULL){fputs("Buf[0] empty.", stderr); }
-            //if(buf[1] == NULL){fputs("Buf[1] empty.", stderr); }
+            if(chcksum != sentChcksum){
+                fprintf(stdout, "Checksums don't match! Not writing file, connect & try again.\n");
+            }
 
-            /* Buf now holds the entire text file contents.*/
             /* Open file for writing. */
-            /* Open file */
             if ((fd = fopen(CmdArray[2], "w")) == NULL) {
                 fputs("File open failed.", stderr);
-                //printf("ERROR: %s\n", strerror(errno));
-                //return 1;
             }
+
             /*Write the buffers contents to opened file.*/
-            //strtok(TmpCpy, "***text****");
-            fprintf(stdout, "%s", TmpCpy);
-
-            int bufSize = strlen(TmpCpy);
-
-            //fprintf(stdout, "%s\n", buf[0]);
+            int bufSize = strlen(buf[1]);
             fprintf(stdout, "buffer size: %u\n", bufSize);
             if(fd){
-                //Writen(fd, buf[1], bufSize);
-                fwrite(TmpCpy, bufSize, 1, fd);
+                fwrite(buf[1], bufSize, 1, fd);
             }
+
             /*Free memory*/
             fclose(fd);
             /*Unlock writing.*/
@@ -303,13 +288,4 @@ int ls()
         exit (EXIT_FAILURE);
     }
     return 0;
-}
-
-
-void Write2File(void *buf)
-{
-    //anytime anyone wants to write, lock the file use mutex locks to lock / unlock file... use a global mutex lock
-    // global mutex lock
-    // write to file
-    // global mutex unlock
 }

@@ -24,6 +24,7 @@ enum {MAXLIN = 4096, LISTENQ = 100};
 #include <fcntl.h>
 #include <dirent.h>
 #include <ctype.h>
+#include <math.h>
 
 #define BUF_SIZE 4096 /* use a buffer size of 4096 bytes */
 #define OUTPUT_MODE 0700 /* protection bits for output file */
@@ -146,3 +147,8 @@ void Tokenize(char *sentence, char** StorageArray, char * delimiter);
 char * StripWhite(char *string);
 
 bool SetSocketBlockingEnabled(int fd, bool blocking);
+
+int checksum(char* str);
+
+/*Number of places in an int. RAW speed version*/
+int numDigi (int n);

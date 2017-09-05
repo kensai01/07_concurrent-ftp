@@ -10,7 +10,7 @@ CC=gcc
 CFLAGS=-c -Wall -O2
 
 # Set some flags to compile socket programs
-LDFLAGS= -lnsl -pthread
+LDFLAGS= -pthread -lcurses -lm -g
 
 # Inlcude the source files that you wish 
 # You change this line to include your own files

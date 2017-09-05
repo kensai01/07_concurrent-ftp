@@ -13,7 +13,6 @@ char **CmdArray;
 char *CmdCpy;
 int sockfd;
 
-int PutCommand(), LsCommand();
 
 //Client Controll Function
 void ClientControll(void);
@@ -24,9 +23,6 @@ int ls();
 /* argc- stands for the number of arguments
  * argv- stands for the argument vector storing the arguments */
  int main(int argc, char **argv) {
-    int one = 1;
-
-
     server = argv[1];
     port = argv[2];
     /* More or less, create a TCP IPv4 socket
@@ -53,7 +49,7 @@ int ls();
 	exit(0);
 }
 
-void ClientControll(void){
+void ClientControll(void) {
 
     printf("Welcome to TCP...\n");
     printf("Usage.\n");
@@ -62,12 +58,11 @@ void ClientControll(void){
     printf("put <infilename> <outfilename>\n");
     printf("get <outfilename> <infilename>\n");
 
-    char sendline[MAXLINE], recvline[MAXLINE];
-    char *buf = NULL;
-    int outchars, inchars, n;
+    char sendline[MAXLINE];
+    int outchars;
     char **CmdArray;
+    char **TmpArray;
     char *CmdCpy;
-    char *infile, *outfile;
     FILE *fd;
     long fileSize;
     char *fileBuf = NULL;
@@ -77,42 +72,43 @@ void ClientControll(void){
     char fileBuf1[1000000];
 
     while (fgets(sendline, MAXLINE, stdin) != NULL) {
-        CmdArray = malloc(128 * sizeof(char*));
+        /*Setup of variables and arrays.*/
+        CmdArray = malloc(128 * sizeof(char *));
+        TmpArray = malloc(1000000 * sizeof(char *));
         CmdCpy = malloc(255 * sizeof(char));
         strcpy(CmdCpy, sendline);
+
+        /*Tokenize Command and strip whitespace. */
         Tokenize(CmdCpy, CmdArray, " ");
+        if (TokenCount >= 1) CmdArray[0] = StripWhite(CmdArray[0]);
+        if (TokenCount >= 2) CmdArray[1] = StripWhite(CmdArray[1]);
+        if (TokenCount >= 3) CmdArray[2] = StripWhite(CmdArray[2]);
 
-        if(TokenCount >= 1) CmdArray[0] = StripWhite(CmdArray[0]);
-        if(TokenCount >= 2) CmdArray[1] = StripWhite(CmdArray[1]);
-        if(TokenCount >= 3) CmdArray[2] = StripWhite(CmdArray[2]);
+        if ((strcmp(CmdArray[0], "ls")) == 0) { ls(); }
 
-        //CmdArray[1] = StripWhite(CmdArray[1]);
-        printf("token: %s\n", CmdArray[0]);
-        printf("length of cmd %zu\n", strlen(CmdArray[0]));
-        if((strcmp(CmdArray[0],"ls")) == 0) { ls(); }
-        if((strcmp(CmdArray[0], "!ls")) == 0){
+        if ((strcmp(CmdArray[0], "!ls")) == 0) {
             printf("Sending: %s\n", CmdArray[0]);
-            //sendline[MAXLINE] = '\0';
             outchars = strlen(CmdArray[0]);
             Writen(sockfd, CmdArray[0], outchars);
-            exit(1);
+            close(sockfd);
+            exit(0);
         }
-        if((strcmp(CmdArray[0], "get")) == 0) {
+
+        if ((strcmp(CmdArray[0], "get")) == 0) {
             /*Lock writing so only one thread can write to a file.*/
             (void) pthread_mutex_lock(&stats.Mutex);
 
-            if(TokenCount != 3){ printf("ERROR: usage <get> <output file name> <input file name>\n");}
+            if (TokenCount != 3) { printf("ERROR: usage <get> <output file name> <input file name>\n"); }
             int metaLen = 5; // get and two spaces
 
             fileNameLen = strlen(CmdArray[1]);
             outfileNameLen = strlen(CmdArray[2]);
 
             /* Initialize the buffer with file size. */
-            int bufferSize = metaLen+fileNameLen+outfileNameLen;
+            int bufferSize = metaLen + fileNameLen + outfileNameLen;
 
             if ((tempBuf = calloc(1, fileSize)) == NULL) {
                 fputs("Failed to allocate memory.", stderr);
-                //return 1;
             }
 
             /* Fill buffer. */
@@ -125,25 +121,48 @@ void ClientControll(void){
 
             printf("%s\n", tempBuf);
 
-            /* A wrapper around writen. Returns true if write is successful. */
+            /*Write the request to the server asking for the file.*/
             Writen(sockfd, tempBuf, bufferSize);
+            shutdown(sockfd, 1);
+            printf("Written completed.");
 
+            /*Clear out the buffer the file will go into*/
             bzero(fileBuf1, 1000000);
 
+            /*Read back the file and the checksum.*/
             Readn(sockfd, fileBuf1, sizeof(fileBuf1));
+            shutdown(sockfd, 0);
+            printf("Readn completed.");
 
-            printf("inc: %s\n", fileBuf1);
+            /*Remove the file from the checksum so we can check it.*/
+            Tokenize(fileBuf1, TmpArray, "~");
+
+            /*Checksum setup and calculation.*/
+            int chcksum = 0;
+            chcksum = checksum(TmpArray[0]);
+            fprintf(stdout, "Buffers checksum %u\n", chcksum);
+
+            int sentChcksum = 0;
+            /*Received cheksum value as int.*/
+            if (TmpArray[1] != NULL) {
+                sentChcksum = atoi(TmpArray[1]);
+                fprintf(stdout, "Sent checksum %u\n", sentChcksum);
+            }
+
+            if(chcksum != sentChcksum){
+                fprintf(stdout, "Checksums don't match! Not writing file to client, connect & try again.\n");
+            }
+
+            //printf("inc: %s\n", fileBuf1);
 
             if ((fd = fopen(CmdArray[2], "w")) == NULL) {
                 fputs("File open failed.", stderr);
-                //printf("ERROR: %s\n", strerror(errno));
-                //return 1;
             }
-            int bufSize = strlen(fileBuf1);
+            int bufSize = strlen(TmpArray[0]);
 
             fprintf(stdout, "buffer size: %u\n", bufSize);
-            if(fd){
-                fwrite(fileBuf1, bufSize, 1, fd);
+            if (fd) {
+                fwrite(TmpArray[0], bufSize, 1, fd);
             }
             /*Free memory*/
             fclose(fd);
@@ -154,38 +173,38 @@ void ClientControll(void){
 
             /*Unlock writing.*/
             (void) pthread_mutex_unlock(&stats.Mutex);
+            printf("File writen to client correctly!\n");
+            printf("To run again: ./filename <ip address> <port>\n");
             exit(0);
         }
-    }
-        if((strcmp(CmdArray[0], "put")) == 0 ){
-            if(TokenCount != 3){ printf("ERROR: usage <put> <input file name> <output file name>\n");}
-            int metaLen = 17; //("put <in filename> <out filename> ***text****")
+
+        if ((strcmp(CmdArray[0], "put")) == 0) {
+            if (TokenCount != 3) { printf("ERROR: usage <put> <input file name> <output file name>\n"); }
+            int metaLen = 7; //("put <in filename> <out filename> ~")
 
             /* Open file */
             if ((fd = fopen(CmdArray[1], "rb")) == NULL) {
                 printf("ERROR: %s\n", strerror(errno));
-                //return 1;
             }
 
             /* Determine the size of the file to set buffer. */
-            fseek(fd, 0L, SEEK_END );
+            fseek(fd, 0L, SEEK_END);
             fileSize = ftell(fd);
             rewind(fd);
+            printf("File size: %ld", fileSize);
 
             fileNameLen = strlen(CmdArray[1]);
             outfileNameLen = strlen(CmdArray[2]);
 
             /* Initialize the buffer with file size. */
-            int bufferSize = fileSize+1+fileNameLen+outfileNameLen+metaLen+1;
+            int bufferSize = fileSize + 1 + fileNameLen + outfileNameLen + metaLen + 1;
             if ((fileBuf = calloc(1, bufferSize)) == NULL) {
                 fclose(fd);
                 fputs("Failed to allocate memory.", stderr);
-                //return 1;
             }
             if ((tempBuf = calloc(1, fileSize)) == NULL) {
                 fclose(fd);
                 fputs("Failed to allocate memory.", stderr);
-                //return 1;
             }
 
             /* Add meta data to prefix buffer. */
@@ -194,19 +213,40 @@ void ClientControll(void){
             strcat(fileBuf, " ");
             strcat(fileBuf, CmdArray[2]);
             strcat(fileBuf, " ");
-            strcat(fileBuf, "***text****");
 
             printf("%s", fileBuf);
 
             /*Copy file into the temp buffer*/
-            if((fread(tempBuf, fileSize, 1, fd)) != 1){
+            if ((fread(tempBuf, fileSize, 1, fd)) != 1) {
                 fclose(fd);
                 free(tempBuf);
                 fputs("Read failed.", stderr);
-                //return 1;
             }
 
-            /*Add temp buffer to header.*/
+            /*Checksum setup and calculation.*/
+            int chcksum = 0;
+            chcksum = checksum(tempBuf);
+            printf("Checksum: %u\n", chcksum);
+
+            /*Get the number of digits in the checksum integer.*/
+            int numDigits = numDigi(chcksum);
+            numDigits++;
+            printf("Num Digits: %u\n", numDigits);
+
+            /*Convert checksum integer into a character array to add into the buffer.*/
+            char* chcksumChar = malloc(numDigits * sizeof(int));
+            sprintf(chcksumChar, "%u", chcksum);
+            printf("Checksum: %s\n", chcksumChar);
+
+            /*Add the checksum character to the buffer.*/
+            strcat(fileBuf, chcksumChar);
+            strcat(fileBuf, " ");
+            strcat(fileBuf, "~");
+
+            /*Add checksum size to the buffer calculation.*/
+            bufferSize = bufferSize + numDigits + 1; // +1 for the extra space
+
+            /*Add temp buffer(file) to header(all other stuff).*/
             strcat(fileBuf, tempBuf);
             /* Add null terminated character. */
             strcat(fileBuf, "\0");
@@ -219,13 +259,17 @@ void ClientControll(void){
             free(fileBuf);
             free(tempBuf);
             bufferSize = 0;
+
+            /*If this exit is removed, it hangs... why!?*/
+            printf("File writen to client correctly!\n");
+            printf("To run again: ./filename <ip address> <port>\n");
             exit(0);
-        }
-        else{
+
+        } else {
             printf("Command doesn't match any available.");
         }
+    }
 }
-
 
 int ls()
 {
@@ -253,100 +297,4 @@ int ls()
         exit (EXIT_FAILURE);
     }
     return 0;
-}
-
-int GetCommand()
-{
-    if(TokenCount != 3){ printf("ERROR: usage <get> <fileonserver> <outputfile>\n"); return 0;}
-
-    FILE *out_fd;
-    int in_fd, rd_count, wt_count;
-    char buffer[MAXLINE];
-    printf("Receiving file from Server %s and saving as %s\n.", CmdArray[1], CmdArray[2]);
-    /* Open the input file and create the output file */
-    if ((out_fd = fopen(CmdArray[2], "w")) == NULL) {
-        printf("ERROR: %s\n", strerror(errno));
-        return 0;
-    }
-    /* Copy loop */
-    bzero(buffer, MAXLINE);
-    rd_count = 0;
-    while ((rd_count = recv(sockfd, buffer, MAXLINE, 0)) >= 0) {
-        /* read a block of data */
-        printf("Read Count: %d:", rd_count);
-        wt_count = fwrite(buffer, sizeof(char), rd_count, out_fd);
-        printf("Write Count: %d:", wt_count);
-        if(wt_count < rd_count){
-            printf("File write failed!");
-        }
-        bzero(buffer, MAXLINE);
-        if(rd_count <= 0) { break; }
-    }
-    if(rd_count < 0){
-        if (errno == EAGAIN){ printf("ERROR: recv() timed out %s", strerror(errno));
-        }
-        else printf("recv() timed out.\n");
-    }
-
-    if(fclose(out_fd) == -1){
-        printf("ERROR: %s\n", strerror(errno));
-        return 0;
-    }
-    /* no error on last read */
-    if (rd_count == 0)
-        return 1;
-    else
-        return 0;  /* error on last read */
-}
-
-int PutCommand() {
-    char *buffer = NULL;
-    int string_size, read_size;
-    int metaLen = 15; //("put <filename>***text****")
-    int fileNameLen;
-    int fileNameLen2;
-
-    FILE *handler = fopen(CmdArray[1], "r");
-
-    if (handler) {
-        // Seek the last byte of the file
-        fseek(handler, 0, SEEK_END);
-        // Offset from the first to the last byte, or in other words, filesize
-        string_size = ftell(handler);
-        // go back to the start of the file
-        rewind(handler);
-
-        fileNameLen = strlen(CmdArray[1]);
-        fileNameLen2 = strlen(CmdArray[2]);
-
-        // Allocate a string that can hold it all
-        buffer = (char *) malloc(sizeof(char) * (1 + fileNameLen2 + fileNameLen + string_size + 1 + metaLen));
-
-        /* Add meta data to prefix buffer. */
-        strcat(buffer, "put ");
-        strcat(buffer, CmdArray[1]);
-        strcat(buffer, " ");
-        strcat(buffer, CmdArray[2]);
-        strcat(buffer, "***text****");
-
-        // Read it all in one operation
-        read_size = fread(buffer, sizeof(char), string_size, handler);
-
-        // fread doesn't set it so put a \0 in the last position
-        // and buffer is now officially a string
-        buffer[string_size] = '\0';
-
-        if (string_size != read_size) {
-            // Something went wrong, throw away the memory and set
-            // the buffer to NULL
-            free(buffer);
-            buffer = NULL;
-        }
-    }
-
-    /* A wrapper around writen. Returns true if write is successful. */
-    Writen(sockfd, buffer, strlen(buffer));
-
-    //fclose(fd);
-    //free(buf);
 }
